@@ -1,0 +1,138 @@
+# Dockerfile
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Ollama
+RUN curl -fsSL https://ollama.ai/install.sh | sh
+
+# Copy requirements and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application files
+COPY app.py .
+
+# Create data directory for documents
+RUN mkdir -p /app/data
+
+# Expose ports
+EXPOSE 8501 11434
+
+# Create startup script
+RUN echo '#!/bin/bash\n\
+# Start Ollama in background\n\
+ollama serve &\n\
+\n\
+# Wait for Ollama to be ready\n\
+echo "Waiting for Ollama to start..."\n\
+while ! curl -s http://localhost:11434/api/tags >/dev/null; do\n\
+    sleep 1\n\
+done\n\
+echo "Ollama is ready!"\n\
+\n\
+# Start Streamlit\n\
+streamlit run app.py --server.port 8501 --server.address 0.0.0.0\n\
+' > /app/start.sh && chmod +x /app/start.sh
+
+# Set the startup command
+CMD ["/app/start.sh"]
+
+---
+
+# docker-compose.yml
+version: '3.8'
+
+services:
+  llm-doc-review:
+    build: .
+    ports:
+      - "8501:8501"    # Streamlit
+      - "11434:11434"  # Ollama
+    volumes:
+      - ./data:/app/data
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    restart: unless-stopped
+    
+volumes:
+  ollama_data:
+
+---
+
+# docker-run.sh
+#!/bin/bash
+
+echo "🐳 Starting Local LLM Document Review with Docker..."
+
+# Build the Docker image
+echo "📦 Building Docker image..."
+docker build -t llm-doc-review .
+
+# Create data directory if it doesn't exist
+mkdir -p ./data
+
+# Run the container
+echo "🚀 Starting container..."
+docker run -d \
+  --name llm-doc-review \
+  -p 8501:8501 \
+  -p 11434:11434 \
+  -v $(pwd)/data:/app/data \
+  -v llm_ollama_data:/root/.ollama \
+  --restart unless-stopped \
+  llm-doc-review
+
+echo "✅ Container started!"
+echo ""
+echo "🌐 Open your browser to: http://localhost:8501"
+echo ""
+echo "📋 Useful commands:"
+echo "  View logs:     docker logs -f llm-doc-review"
+echo "  Stop:          docker stop llm-doc-review"
+echo "  Remove:        docker rm llm-doc-review"
+echo "  Shell access:  docker exec -it llm-doc-review bash"
+
+---
+
+# docker-run.bat
+@echo off
+echo 🐳 Starting Local LLM Document Review with Docker...
+
+REM Build the Docker image
+echo 📦 Building Docker image...
+docker build -t llm-doc-review .
+
+REM Create data directory if it doesn't exist
+if not exist "data" mkdir data
+
+REM Run the container
+echo 🚀 Starting container...
+docker run -d ^
+  --name llm-doc-review ^
+  -p 8501:8501 ^
+  -p 11434:11434 ^
+  -v %cd%/data:/app/data ^
+  -v llm_ollama_data:/root/.ollama ^
+  --restart unless-stopped ^
+  llm-doc-review
+
+echo ✅ Container started!
+echo.
+echo 🌐 Open your browser to: http://localhost:8501
+echo.
+echo 📋 Useful commands:
+echo   View logs:     docker logs -f llm-doc-review
+echo   Stop:          docker stop llm-doc-review
+echo   Remove:        docker rm llm-doc-review
+echo   Shell access:  docker exec -it llm-doc-review bash
+
+pause
